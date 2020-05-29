@@ -64,16 +64,16 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-    train_file_path: Optional[str] = field(
+    input_train_file: Optional[str] = field(
         default='./data/train_data.pt',
         metadata={"help": "Path for cached train dataset"},
     )
-    valid_file_path: Optional[str] = field(
+    input_eval_file: Optional[str] = field(
         default='./data/valid_data.pt',
         metadata={"help": "Path for cached valid dataset"},
     )
-    max_len: Optional[int] = field(
-        default=512,
+    max_seq_length: Optional[int] = field(
+        default=4096,
         metadata={"help": "Max input length for the source text"},
     )
 
@@ -132,10 +132,10 @@ def main():
     # Get datasets
     #train_dataset  = torch.load(data_args.train_file_path)
     #eval_dataset = torch.load(data_args.valid_file_path)
-    train_examples = DeepThinkDataset('./data/format/train_6_col.tsv')
-    train_dataset = DTDataset(tokenizer, train_examples, 4096)
-    eval_examples = DeepThinkDataset('./data/format/eval_6_col.tsv')
-    eval_dataset = DTDataset(tokenizer, eval_examples, 4096)
+    train_examples = DeepThinkDataset(data_args.input_train_file)
+    train_dataset = DTDataset(tokenizer, train_examples, data_args.max_seq_length)
+    eval_examples = DeepThinkDataset(data_args.input_eval_file)
+    eval_dataset = DTDataset(tokenizer, eval_examples, data_args.max_seq_length)
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -178,5 +178,6 @@ def main():
     return results
 
 
-main()
+if __name__ == "__main__":
+    main()
 
