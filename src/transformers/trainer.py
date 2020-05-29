@@ -554,11 +554,12 @@ class Trainer:
                     self.global_step += 1
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
 
-                    logs: Dict[str, float] = {}
-                    logs["loss"] = (tr_loss - logging_loss) 
-                    logs["learning_rate"] = (scheduler.get_last_lr()[0] if version.parse(torch.__version__) >= version.parse("1.4") else scheduler.get_lr()[0])
-                    logging_loss = tr_loss
-                    self._log(logs)
+                    if self.is_world_master():
+                        logs: Dict[str, float] = {}
+                        logs["loss"] = (tr_loss - logging_loss) 
+                        logs["learning_rate"] = (scheduler.get_last_lr()[0] if version.parse(torch.__version__) >= version.parse("1.4") else scheduler.get_lr()[0])
+                        logging_loss = tr_loss
+                        self._log(logs)
 
                     if (self.args.logging_steps > 0 and self.global_step % self.args.logging_steps == 0) or (
                         self.global_step == 1 and self.args.logging_first_step
@@ -566,7 +567,7 @@ class Trainer:
                         if self.args.evaluate_during_training:
                             self.evaluate()
 
-                    if self.args.save_steps > 0 and self.global_step % self.args.save_steps == 0:
+                    if self.args.save_steps > 0 and self.global_step % self.args.save_steps == 0 and self.is_world_master():
                         # In all cases (even distributed/parallel), self.model is always a reference
                         # to the model we want to save.
                         if hasattr(model, "module"):
@@ -594,8 +595,9 @@ class Trainer:
                     break
             if self.args.evaluate_during_training:
                 self.evaluate()
-            output_dir = os.path.join(self.args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{self.global_step}")
-            self.save_model(output_dir)
+            if self.is_world_master():
+                output_dir = os.path.join(self.args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{self.global_step}")
+                self.save_model(output_dir)
             if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                 train_iterator.close()
                 break
@@ -801,7 +803,10 @@ class Trainer:
         logger.info("  Num examples = %d", self.num_examples(dataloader))
         logger.info("  Batch size = %d", batch_size)
         eval_losses: List[float] = []
-        answers = []
+        #answers: torch.Tensor = None
+        all_input_ids: torch.Tensor = None
+        all_start_scores: torch.Tensor = None
+        all_end_scores: torch.Tensor = None
         model.eval()
 
         if is_tpu_available():
@@ -819,25 +824,47 @@ class Trainer:
                     step_eval_loss, start_scores, end_scores = outputs[:3]
                     eval_losses += [step_eval_loss.mean().item()]
 
-                    for i in range(start_scores.shape[0]):
-                        all_tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][i])
-                        answer = ' '.join(all_tokens[torch.argmax(start_scores[i]) : torch.argmax(end_scores[i])+1])
-                        ans_ids = self.tokenizer.convert_tokens_to_ids(answer.split())
-                        answer = self.tokenizer.decode(ans_ids)
-                        answers.append(answer)
+                    if all_input_ids is None:
+                        all_input_ids = inputs["input_ids"].detach()
+                        all_start_scores = start_scores.detach()
+                        all_end_scores = end_scores.detach()
+                    else:
+                        all_input_ids = torch.cat((all_input_ids, inputs["input_ids"].detach()), dim=0)
+                        all_start_scores = torch.cat((all_start_scores, start_scores.detach()), dim=0)
+                        all_end_scores = torch.cat((all_end_scores, end_scores.detach()), dim=0)
                 else:
                     logits = outputs[0]
-        predictions = []
-        references = []
-        for ref, pred in zip(self.eval_dataset, answers):
-            predictions.append(pred)
-            references.append(ref['answers']['text'])
 
-        exact_match, f1 = evaluate(references, predictions)
+        if self.args.local_rank != -1:
+            if all_input_ids is not None:
+                all_input_ids = self.distributed_concat(all_input_ids, num_total_examples=self.num_examples(dataloader))
+            if all_start_scores is not None:
+                all_start_scores = self.distributed_concat(all_start_scores, num_total_examples=self.num_examples(dataloader))
+            if all_end_scores is not None:
+                all_end_scores = self.distributed_concat(all_end_scores, num_total_examples=self.num_examples(dataloader))
 
         metrics = {}
-        metrics["Eval/exact_match"] = exact_match
-        metrics["Eval/f1"] = f1
+        if len(eval_losses) > 0:
+            metrics["loss"] = np.mean(eval_losses)
+        if self.is_world_master():
+            answers = []
+            for i in tqdm(range(all_start_scores.shape[0])):
+                all_tokens = self.tokenizer.convert_ids_to_tokens(all_input_ids[i])
+                answer = ' '.join(all_tokens[torch.argmax(all_start_scores[i]) : torch.argmax(all_end_scores[i]) + 1])
+                ans_ids = self.tokenizer.convert_tokens_to_ids(answer.split())
+                answer = self.tokenizer.decode(ans_ids)
+                answers.append(answer)
+
+            predictions = []
+            references = []
+            for ref, pred in zip(self.eval_dataset, answers):
+                predictions.append(pred)
+                references.append(ref['answers']['text'])
+
+            exact_match, f1 = evaluate(references, predictions)
+
+            metrics["Eval/exact_match"] = exact_match
+            metrics["Eval/f1"] = f1
 
         #return PredictionOutput(predictions=preds, label_ids=label_ids, metrics=metrics)
         return PredictionOutput(predictions=None, label_ids=None, metrics=metrics)

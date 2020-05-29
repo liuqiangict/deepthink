@@ -40,7 +40,7 @@ class DTDataset(Dataset):
     def __len__(self):
         return self.len
 
-    def get_correct_alignement(self, context, answer, answer_start):
+    def get_correct_alignement(self, context, answer):
         """ Some original examples in SQuAD have indices wrong by 1 or 2 character. We test and fix this here. """
         #gold_text = answer
         #start_idx = answer_start
@@ -54,23 +54,26 @@ class DTDataset(Dataset):
         elif context[start_idx - 2 : end_idx - 2] == gold_text:
             return start_idx - 2, end_idx - 2   # When the gold label is off by two character
         else:
-            raise ValueError()
+            raise ValueError(f'Incorrect answer as {gold_text} to span from text as \'{context[start_idx:end_idx]}\'')
 
-    def convert_to_features(self, query, doc, answer, start_idx):
+    def convert_to_features(self, query, doc, answer):
         input_pairs = [query, doc]
-        encodings = self.tokenizer.encode_plus(input_pairs, pad_to_max_length=True, max_length=512)
+        encodings = self.tokenizer.encode_plus(input_pairs, pad_to_max_length=True, max_length=self.max_seq_len)
         context_encodings = self.tokenizer.encode_plus(doc)
 
-        start_idx, end_idx = self.get_correct_alignement(doc, answer, start_idx)
+        start_idx, end_idx = self.get_correct_alignement(doc, answer)
         start_positions_context = context_encodings.char_to_token(start_idx)
         end_positions_context = context_encodings.char_to_token(end_idx-1)
 
-        sep_idx = encodings['input_ids'].index(self.tokenizer.sep_token_id)
-        start_positions = start_positions_context + sep_idx + 1
-        end_positions = end_positions_context + sep_idx + 1
-
-        if end_positions > 512:
+        if start_positions_context is None or end_positions_context is None:
+            print(encodings)
             start_positions, end_positions = 0, 0
+        else:
+            sep_idx = encodings['input_ids'].index(self.tokenizer.sep_token_id)
+            start_positions = start_positions_context + sep_idx + 1
+            end_positions = end_positions_context + sep_idx + 1
+            if start_positions >= self.max_seq_len or end_positions >= self.max_seq_len:
+                start_positions, end_positions = 0, 0
 
         #encodings.update({'start_positions': start_positions, 'end_positions': end_positions, 'attention_mask': encodings['attention_mask']})
    
@@ -78,8 +81,8 @@ class DTDataset(Dataset):
 
     def __getitem__(self, index):
 
-        guid, query, doc, answer, start_idx = self.data.all_pairs[index]
-        input_ids, attention_mask, start_positions, end_positions = self.convert_to_features(query, doc, answer, start_idx)
+        guid, query, doc, answer = self.data.all_pairs[index]
+        input_ids, attention_mask, start_positions, end_positions = self.convert_to_features(query, doc, answer)
 
         #guid = map_to_torch([inputs['guid']])
         input_ids = map_to_torch(input_ids)
@@ -102,10 +105,18 @@ class DeepThinkDataset:
                 query = cols[1]
                 doc = cols[2]
                 answer = json.loads(cols[3])
+                '''
+                docs = [doc['Text'] for doc in json.loads(cols[2])]
+                doc = ' '.join(docs)
                 start_idx = int(cols[4])
                 #end_idx = int(cols[5])
-
-                all_pairs.append([guid, query, doc, answer, start_idx])
+                answer_start = len(' '.join(docs[:start_idx]))
+                if start_idx != 0:
+                    answer_start += 1
+                answer = {'text': [' '.join(docs[start_idx : end_idx + 1])], 'answer_start': [answer_start]}
+                '''
+                all_pairs.append([guid, query, doc, answer])
+                
                 if i > readin:
                     break
         
