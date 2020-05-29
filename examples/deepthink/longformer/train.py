@@ -17,6 +17,8 @@ from transformers import (
     set_seed,
 )
 
+from dataloader import DTDataset, DeepThinkDataset 
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,6 @@ class DummyDataCollator(DataCollator):
             'end_positions': end_positions,
             'attention_mask': attention_mask
         }
-
 
 
 @dataclass
@@ -77,14 +78,8 @@ class DataTrainingArguments:
     )
 
 def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
-
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
 
-    # we will load the arguments from a json file,
-    # make sure you save the arguments in at ./args.json
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath('args.json'))
     else:
@@ -135,17 +130,20 @@ def main():
     )
 
     # Get datasets
-    print('loading data')
-    train_dataset  = torch.load(data_args.train_file_path)
-    valid_dataset = torch.load(data_args.valid_file_path)
-    print('loading done')
+    #train_dataset  = torch.load(data_args.train_file_path)
+    #eval_dataset = torch.load(data_args.valid_file_path)
+    train_examples = DeepThinkDataset('./data/format/train_6_col.tsv')
+    train_dataset = DTDataset(tokenizer, train_examples, 4096)
+    eval_examples = DeepThinkDataset('./data/format/eval_6_col.tsv')
+    eval_dataset = DTDataset(tokenizer, eval_examples, 4096)
 
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
+        tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=valid_dataset,
+        eval_dataset=eval_dataset,
         data_collator=DummyDataCollator(),
         prediction_loss_only=True,
     )
