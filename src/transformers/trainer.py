@@ -4,7 +4,9 @@ import math
 import os
 import random
 import re
+import string
 import shutil
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -24,6 +26,7 @@ from .modeling_utils import PreTrainedModel
 from .optimization import AdamW, get_linear_schedule_with_warmup
 from .trainer_utils import PREFIX_CHECKPOINT_DIR, EvalPrediction, PredictionOutput, TrainOutput
 from .training_args import TrainingArguments, is_tpu_available
+from tokenizers.implementations import BaseTokenizer as BaseTokenizerFast
 
 
 try:
@@ -87,6 +90,63 @@ def set_seed(seed: int):
     torch.cuda.manual_seed_all(seed)
     # ^^ safe to call this function even if cuda is not available
 
+def normalize_answer(s):
+    """Lower text and remove punctuation, articles and extra whitespace."""
+    def remove_articles(text):
+        return re.sub(r'\b(a|an|the)\b', ' ', text)
+
+    def white_space_fix(text):
+        return ' '.join(text.split())
+
+    def remove_punc(text):
+        exclude = set(string.punctuation)
+        return ''.join(ch for ch in text if ch not in exclude)
+
+    def lower(text):
+        return text.lower()
+
+    return white_space_fix(remove_articles(remove_punc(lower(s))))
+
+
+def f1_score(prediction, ground_truth):
+    prediction_tokens = normalize_answer(prediction).split()
+    ground_truth_tokens = normalize_answer(ground_truth).split()
+    common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0
+    precision = 1.0 * num_same / len(prediction_tokens)
+    recall = 1.0 * num_same / len(ground_truth_tokens)
+    f1 = (2 * precision * recall) / (precision + recall)
+    return f1
+
+
+def exact_match_score(prediction, ground_truth):
+    return (normalize_answer(prediction) == normalize_answer(ground_truth))
+
+
+def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
+    scores_for_ground_truths = []
+    for ground_truth in ground_truths:
+        score = metric_fn(prediction, ground_truth)
+        scores_for_ground_truths.append(score)
+    return max(scores_for_ground_truths)
+
+
+def evaluate(gold_answers, predictions):
+    f1 = exact_match = total = 0
+
+    for ground_truths, prediction in zip(gold_answers, predictions):
+      total += 1
+      exact_match += metric_max_over_ground_truths(
+                    exact_match_score, prediction, ground_truths)
+      f1 += metric_max_over_ground_truths(
+          f1_score, prediction, ground_truths)
+
+    exact_match = 100.0 * exact_match / total
+    f1 = 100.0 * f1 / total
+
+    return exact_match, f1
 
 @contextmanager
 def torch_distributed_zero_first(local_rank: int):
@@ -157,6 +217,7 @@ class Trainer:
     """
 
     model: PreTrainedModel
+    tokenizer: BaseTokenizerFast
     args: TrainingArguments
     data_collator: DataCollator
     train_dataset: Optional[Dataset]
@@ -171,6 +232,7 @@ class Trainer:
     def __init__(
         self,
         model: PreTrainedModel,
+        tokenizer: BaseTokenizerFast,
         args: TrainingArguments,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
@@ -189,6 +251,7 @@ class Trainer:
                 (Optional) in evaluation and prediction, only return the loss
         """
         self.model = model.to(args.device)
+        self.tokenizer = tokenizer
         self.args = args
         if data_collator is not None:
             self.data_collator = data_collator
@@ -402,7 +465,7 @@ class Trainer:
 
         if self.tb_writer is not None:
             self.tb_writer.add_text("args", self.args.to_json_string())
-            self.tb_writer.add_hparams(self.args.to_sanitized_dict(), metric_dict={})
+            #self.tb_writer.add_hparams(self.args.to_sanitized_dict(), metric_dict={})
 
         # Train!
         if is_tpu_available():
@@ -490,21 +553,15 @@ class Trainer:
                     self.global_step += 1
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
 
+                    logs: Dict[str, float] = {}
+                    logs["loss"] = (tr_loss - logging_loss) / self.args.logging_steps
+                    logs["learning_rate"] = (scheduler.get_last_lr()[0] if version.parse(torch.__version__) >= version.parse("1.4") else scheduler.get_lr()[0])
+                    logging_loss = tr_loss
+                    self._log(logs)
+
                     if (self.args.logging_steps > 0 and self.global_step % self.args.logging_steps == 0) or (
                         self.global_step == 1 and self.args.logging_first_step
                     ):
-                        logs: Dict[str, float] = {}
-                        logs["loss"] = (tr_loss - logging_loss) / self.args.logging_steps
-                        # backward compatibility for pytorch schedulers
-                        logs["learning_rate"] = (
-                            scheduler.get_last_lr()[0]
-                            if version.parse(torch.__version__) >= version.parse("1.4")
-                            else scheduler.get_lr()[0]
-                        )
-                        logging_loss = tr_loss
-
-                        self._log(logs)
-
                         if self.args.evaluate_during_training:
                             self.evaluate()
 
@@ -534,6 +591,10 @@ class Trainer:
                 if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                     epoch_iterator.close()
                     break
+            if self.args.evaluate_during_training:
+                self.evaluate()
+            output_dir = os.path.join(self.args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{self.global_step}")
+            self.save_model(output_dir)
             if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                 train_iterator.close()
                 break
@@ -739,15 +800,14 @@ class Trainer:
         logger.info("  Num examples = %d", self.num_examples(dataloader))
         logger.info("  Batch size = %d", batch_size)
         eval_losses: List[float] = []
-        preds: torch.Tensor = None
-        label_ids: torch.Tensor = None
+        answers = []
         model.eval()
 
         if is_tpu_available():
             dataloader = pl.ParallelLoader(dataloader, [self.args.device]).per_device_loader(self.args.device)
 
         for inputs in tqdm(dataloader, desc=description):
-            has_labels = any(inputs.get(k) is not None for k in ["labels", "lm_labels", "masked_lm_labels"])
+            has_labels = any(inputs.get(k) is not None for k in ["labels", "lm_labels", "masked_lm_labels", "start_positions"])
 
             for k, v in inputs.items():
                 inputs[k] = v.to(self.args.device)
@@ -755,54 +815,31 @@ class Trainer:
             with torch.no_grad():
                 outputs = model(**inputs)
                 if has_labels:
-                    step_eval_loss, logits = outputs[:2]
+                    step_eval_loss, start_scores, end_scores = outputs[:3]
                     eval_losses += [step_eval_loss.mean().item()]
+
+                    for i in range(start_scores.shape[0]):
+                        all_tokens = self.tokenizer.convert_ids_to_tokens(inputs['input_ids'][i])
+                        answer = ' '.join(all_tokens[torch.argmax(start_scores[i]) : torch.argmax(end_scores[i])+1])
+                        ans_ids = self.tokenizer.convert_tokens_to_ids(answer.split())
+                        answer = self.tokenizer.decode(ans_ids)
+                        answers.append(answer)
                 else:
                     logits = outputs[0]
+        predictions = []
+        references = []
+        for ref, pred in zip(self.eval_dataset, answers):
+            predictions.append(pred)
+            references.append(ref['answers']['text'])
 
-            if not prediction_loss_only:
-                if preds is None:
-                    preds = logits.detach()
-                else:
-                    preds = torch.cat((preds, logits.detach()), dim=0)
-                if inputs.get("labels") is not None:
-                    if label_ids is None:
-                        label_ids = inputs["labels"].detach()
-                    else:
-                        label_ids = torch.cat((label_ids, inputs["labels"].detach()), dim=0)
+        exact_match, f1 = evaluate(references, predictions)
 
-        if self.args.local_rank != -1:
-            # In distributed mode, concatenate all results from all nodes:
-            if preds is not None:
-                preds = self.distributed_concat(preds, num_total_examples=self.num_examples(dataloader))
-            if label_ids is not None:
-                label_ids = self.distributed_concat(label_ids, num_total_examples=self.num_examples(dataloader))
-        elif is_tpu_available():
-            # tpu-comment: Get all predictions and labels from all worker shards of eval dataset
-            if preds is not None:
-                preds = xm.mesh_reduce("eval_preds", preds, torch.cat)
-            if label_ids is not None:
-                label_ids = xm.mesh_reduce("eval_label_ids", label_ids, torch.cat)
+        metrics = {}
+        metrics["Eval/exact_match"] = exact_match
+        metrics["Eval/f1"] = f1
 
-        # Finally, turn the aggregated tensors into numpy arrays.
-        if preds is not None:
-            preds = preds.cpu().numpy()
-        if label_ids is not None:
-            label_ids = label_ids.cpu().numpy()
-
-        if self.compute_metrics is not None and preds is not None and label_ids is not None:
-            metrics = self.compute_metrics(EvalPrediction(predictions=preds, label_ids=label_ids))
-        else:
-            metrics = {}
-        if len(eval_losses) > 0:
-            metrics["eval_loss"] = np.mean(eval_losses)
-
-        # Prefix all keys with eval_
-        for key in list(metrics.keys()):
-            if not key.startswith("eval_"):
-                metrics[f"eval_{key}"] = metrics.pop(key)
-
-        return PredictionOutput(predictions=preds, label_ids=label_ids, metrics=metrics)
+        #return PredictionOutput(predictions=preds, label_ids=label_ids, metrics=metrics)
+        return PredictionOutput(predictions=None, label_ids=None, metrics=metrics)
 
     def distributed_concat(self, tensor: torch.Tensor, num_total_examples: int) -> torch.Tensor:
         assert self.args.local_rank != -1
