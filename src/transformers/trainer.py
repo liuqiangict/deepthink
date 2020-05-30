@@ -767,7 +767,7 @@ class Trainer:
                 - the eval loss
                 - the potential metrics computed from the predictions
         """
-        eval_dataloader = self.get_eval_dataloader(eval_dataset)
+        eval_dataloader = self.get_eval_dataloader(eval_dataset if not None else self.eval_dataset)
 
         output = self._prediction_loop(eval_dataloader, description="Evaluation")
 
