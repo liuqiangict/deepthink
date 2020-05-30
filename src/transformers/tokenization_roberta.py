@@ -180,7 +180,7 @@ class RobertaTokenizer(GPT2Tokenizer):
             input_ids.extend(doc_ids)
             valid_mask_ids.append(1)
             valid_mask_ids.extend([0] * len(doc_ids))
-            token_type_ids.extend([1] * (1 + len(doc_ids)))
+            token_type_ids.extend([i + 1] * (1 + len(doc_ids)))
 
         assert position >= 0, "In any case, position should be a positive numebr. if 0, means ground truth answer out of sequence length."
 
