@@ -832,7 +832,7 @@ class Trainer:
             with torch.no_grad():
                 outputs = model(**inputs)
                 if has_labels:
-                    step_eval_loss, start_scores, end_scores = outputs[:3]
+                    step_eval_loss, start_scores = outputs[:2]
                     eval_losses += [step_eval_loss.mean().item()]
 
                     if all_input_ids is None:

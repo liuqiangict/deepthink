@@ -67,12 +67,12 @@ def _compute_global_attention_mask(input_ids, sep_token_id, before_sep_token=Tru
     # bool attention mask with True in locations of global attention
     attention_mask = torch.arange(input_ids.shape[1], device=input_ids.device)
     if before_sep_token is True:
-        attention_mask = (attention_mask.expand_as(input_ids) < question_end_index).to(torch.uint8)
+        attention_mask = (attention_mask.expand_as(input_ids) < question_end_index).to(torch.int64)
     else:
         # last token is separation token and should not be counted and in the middle are two separation tokens
         attention_mask = (attention_mask.expand_as(input_ids) > (question_end_index + 1)).to(torch.uint8) * (
             attention_mask.expand_as(input_ids) < input_ids.shape[-1]
-        ).to(torch.uint8)
+        ).to(torch.int64)
 
     return attention_mask
 
@@ -988,7 +988,7 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
 
         logits = self.qa_outputs(sequence_output)
         start_logits = logits.squeeze(-1)
-        start_logits = start_logits * valid_mask_ids
+        start_logits = start_logits * valid_mask_ids.to(start_logits.dtype)
 
         outputs = (start_logits, ) + outputs[2:]
         if start_positions is not None:
