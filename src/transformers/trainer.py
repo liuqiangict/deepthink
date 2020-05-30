@@ -109,8 +109,14 @@ def normalize_answer(s):
 
 
 def f1_score(prediction, ground_truth):
-    prediction_tokens = normalize_answer(prediction).split()
-    ground_truth_tokens = normalize_answer(ground_truth).split()
+    #prediction_tokens = normalize_answer(prediction).split()
+    #ground_truth_tokens = normalize_answer(ground_truth).split()
+
+    norm_pred = normalize_answer(prediction)
+    norm_ground = normalize_answer(ground_truth)[:len(norm_pred)]
+    prediction_tokens = norm_pred.split()
+    ground_truth_tokens = norm_ground.split()
+
     common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
     num_same = sum(common.values())
     if num_same == 0:
@@ -122,7 +128,13 @@ def f1_score(prediction, ground_truth):
 
 
 def exact_match_score(prediction, ground_truth):
-    return (normalize_answer(prediction) == normalize_answer(ground_truth))
+    #return (normalize_answer(prediction) == normalize_answer(ground_truth))
+    norm_pred = normalize_answer(prediction)
+    norm_ground = normalize_answer(ground_truth)[:len(norm_pred)]
+    #print('*' * 150)
+    #print(norm_ground)
+    #print(norm_pred)
+    return norm_pred == norm_ground
 
 
 def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
@@ -137,10 +149,10 @@ def evaluate(gold_answers, predictions):
     f1 = exact_match = total = 0
 
     for ground_truths, prediction in zip(gold_answers, predictions):
-      total += 1
-      exact_match += metric_max_over_ground_truths(
+        total += 1
+        exact_match += metric_max_over_ground_truths(
                     exact_match_score, prediction, ground_truths)
-      f1 += metric_max_over_ground_truths(
+        f1 += metric_max_over_ground_truths(
           f1_score, prediction, ground_truths)
 
     exact_match = 100.0 * exact_match / total
@@ -850,7 +862,8 @@ class Trainer:
             answers = []
             for i in tqdm(range(all_start_scores.shape[0])):
                 all_tokens = self.tokenizer.convert_ids_to_tokens(all_input_ids[i])
-                answer = ' '.join(all_tokens[torch.argmax(all_start_scores[i]) : torch.argmax(all_end_scores[i]) + 1])
+                #answer = ' '.join(all_tokens[torch.argmax(all_start_scores[i]) : torch.argmax(all_end_scores[i]) + 1])
+                answer = ' '.join(all_tokens[torch.argmax(all_start_scores[i]) : torch.argmax(all_start_scores[i]) + 8])
                 ans_ids = self.tokenizer.convert_tokens_to_ids(answer.split())
                 answer = self.tokenizer.decode(ans_ids)
                 answers.append(answer)

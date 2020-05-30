@@ -860,6 +860,10 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
         batch_size = input_ids.shape[0]
 
         assert sep_token_indices.shape[1] == 2, "`input_ids` should have two dimensions"
+        if sep_token_indices.shape[0] != 3 * batch_size:
+            print(sep_token_indices.shape)
+            print(sep_token_indices)
+            print(input_ids)
         assert (
             sep_token_indices.shape[0] == 3 * batch_size
         ), f"There should be exactly three separator tokens: {self.config.sep_token_id} in every sample for questions answering"
@@ -966,8 +970,9 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
 
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
             start_loss = loss_fct(start_logits, start_positions)
-            end_loss = loss_fct(end_logits, end_positions)
-            total_loss = (start_loss + end_loss) / 2
+            #end_loss = loss_fct(end_logits, end_positions)
+            #total_loss = (start_loss + end_loss) / 2
+            total_loss = start_loss
             outputs = (total_loss,) + outputs
 
         return outputs  # (loss), start_logits, end_logits, (hidden_states), (attentions)

@@ -66,7 +66,7 @@ class DTDataset(Dataset):
         end_positions_context = context_encodings.char_to_token(end_idx-1)
 
         if start_positions_context is None or end_positions_context is None:
-            print(encodings)
+            #print(encodings)
             start_positions, end_positions = 0, 0
         else:
             sep_idx = encodings['input_ids'].index(self.tokenizer.sep_token_id)
@@ -103,18 +103,20 @@ class DeepThinkDataset:
                     continue
                 guid = int(cols[0])
                 query = cols[1]
+                if len(query) > 512:
+                    continue
+                '''
                 doc = cols[2]
                 answer = json.loads(cols[3])
                 '''
                 docs = [doc['Text'] for doc in json.loads(cols[2])]
                 doc = ' '.join(docs)
                 start_idx = int(cols[4])
-                #end_idx = int(cols[5])
+                end_idx = int(cols[5])
                 answer_start = len(' '.join(docs[:start_idx]))
                 if start_idx != 0:
                     answer_start += 1
                 answer = {'text': [' '.join(docs[start_idx : end_idx + 1])], 'answer_start': [answer_start]}
-                '''
                 all_pairs.append([guid, query, doc, answer])
                 
                 if i > readin:
