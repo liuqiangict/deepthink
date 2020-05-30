@@ -1440,8 +1440,9 @@ class PreTrainedTokenizer(SpecialTokensMixin):
 
     def encode_plus(
         self,
-        text: Union[TextInput, PreTokenizedInput, EncodedInput],
-        text_pair: Optional[Union[TextInput, PreTokenizedInput, EncodedInput]] = None,
+        query,
+        docs,
+        label_position,
         add_special_tokens: bool = True,
         max_length: Optional[int] = None,
         stride: int = 0,
@@ -1575,12 +1576,15 @@ class PreTrainedTokenizer(SpecialTokensMixin):
                 "or add a new pad token via the function add_special_tokens if you want to use a padding strategy"
             )
 
-        first_ids = get_input_ids(text)
-        second_ids = get_input_ids(text_pair) if text_pair is not None else None
+        query_ids = get_input_ids(text)
+        doc_ids = []
+        for doc in docs:
+            doc_ids.append(get_input_ids(doc))
 
         return self.prepare_for_model(
-            first_ids,
-            pair_ids=second_ids,
+            query_ids,
+            doc_ids,
+            label_position,
             max_length=max_length,
             pad_to_max_length=pad_to_max_length,
             add_special_tokens=add_special_tokens,
@@ -1819,8 +1823,9 @@ class PreTrainedTokenizer(SpecialTokensMixin):
 
     def prepare_for_model(
         self,
-        ids: List[int],
-        pair_ids: Optional[List[int]] = None,
+        query_ids: List[int],
+        docs_ids: Optional[List[List[int]]] = None,
+        label_position: int = None,
         max_length: Optional[int] = None,
         add_special_tokens: bool = True,
         stride: int = 0,
@@ -1890,10 +1895,6 @@ class PreTrainedTokenizer(SpecialTokensMixin):
                     tokens and 1 specifying sequence tokens.
                 - ``length``: this is the length of ``input_ids``
         """
-        pair = bool(pair_ids is not None)
-        len_ids = len(ids)
-        len_pair_ids = len(pair_ids) if pair else 0
-
         # Load from model defaults
         if return_token_type_ids is None:
             return_token_type_ids = "token_type_ids" in self.model_input_names
@@ -1903,29 +1904,30 @@ class PreTrainedTokenizer(SpecialTokensMixin):
         encoded_inputs = {}
 
         # Truncation: Handle max sequence length
-        total_len = len_ids + len_pair_ids + (self.num_special_tokens_to_add(pair=pair) if add_special_tokens else 0)
+        total_len = len(query_ids) + 2
+        for doc_ids in docs_ids:
+            total_len += (len(doc_ids) + 1)
         if max_length and total_len > max_length:
-            ids, pair_ids, overflowing_tokens = self.truncate_sequences(
-                ids,
-                pair_ids=pair_ids,
-                num_tokens_to_remove=total_len - max_length,
+            docs_ids, label_position = self.truncate_sequences(
+                query_ids,
+                doc_ids,
+                label_position,
+                max_length,
                 truncation_strategy=truncation_strategy,
                 stride=stride,
             )
-            if return_overflowing_tokens:
-                encoded_inputs["overflowing_tokens"] = overflowing_tokens
-                encoded_inputs["num_truncated_tokens"] = total_len - max_length
 
         # Add special tokens
         if add_special_tokens:
-            sequence = self.build_inputs_with_special_tokens(ids, pair_ids)
-            token_type_ids = self.create_token_type_ids_from_sequences(ids, pair_ids)
+            sequence, token_type_ids, valid_mask_ids, position = self.build_inputs_with_special_tokens(query_ids, docs_ids, label_position)
         else:
             sequence = ids + pair_ids if pair else ids
             token_type_ids = [0] * len(ids) + ([1] * len(pair_ids) if pair else [])
 
         # Build output dictionnary
         encoded_inputs["input_ids"] = sequence
+        encoded_inputs["valid_mask_ids"] = valid_mask_ids
+        encoded_inputs["label"] = position
         if return_token_type_ids:
             encoded_inputs["token_type_ids"] = token_type_ids
         if return_special_tokens_mask:
@@ -1971,6 +1973,7 @@ class PreTrainedTokenizer(SpecialTokensMixin):
                 if return_special_tokens_mask:
                     encoded_inputs["special_tokens_mask"] = encoded_inputs["special_tokens_mask"] + [1] * difference
                 encoded_inputs["input_ids"] = encoded_inputs["input_ids"] + [self.pad_token_id] * difference
+                encoded_inputs["valid_mask_ids"] = encoded_inputs["valid_mask_ids"] + [0] * difference
             elif self.padding_side == "left":
                 if return_attention_mask:
                     encoded_inputs["attention_mask"] = [0] * difference + [1] * len(encoded_inputs["input_ids"])
@@ -2023,9 +2026,10 @@ class PreTrainedTokenizer(SpecialTokensMixin):
 
     def truncate_sequences(
         self,
-        ids: List[int],
-        pair_ids: Optional[List[int]] = None,
-        num_tokens_to_remove: int = 0,
+        query_ids: List[int],
+        docs_ids: List[List[int]],
+        label_psotiion: int,
+        max_length: int = 0,
         truncation_strategy: str = "longest_first",
         stride: int = 0,
     ) -> Tuple[List[int], List[int], List[int]]:
@@ -2049,20 +2053,17 @@ class PreTrainedTokenizer(SpecialTokensMixin):
                 If set to a number along with max_length, the overflowing tokens returned will contain some tokens
                 from the main sequence returned. The value of this argument defines the number of additional tokens.
         """
-        if num_tokens_to_remove <= 0:
-            return ids, pair_ids, []
 
         if truncation_strategy == "longest_first":
-            overflowing_tokens = []
-            for _ in range(num_tokens_to_remove):
-                if pair_ids is None or len(ids) > len(pair_ids):
-                    overflowing_tokens = [ids[-1]] + overflowing_tokens
-                    ids = ids[:-1]
-                else:
-                    pair_ids = pair_ids[:-1]
-            window_len = min(len(ids), stride)
-            if window_len > 0:
-                overflowing_tokens = ids[-window_len:] + overflowing_tokens
+            index = 0
+            size = 2 + len(query_ids)
+            while size < max_length and index < len(doc_ids):
+                size += (len(doc_ids) + 1)
+                index += 1
+            docs_ids = docs_ids[:index]
+            if label_position >= index:
+                label_position = -1
+            return doc_ids, label_position
         elif truncation_strategy == "only_first":
             assert len(ids) > num_tokens_to_remove
             window_len = min(len(ids), stride + num_tokens_to_remove)

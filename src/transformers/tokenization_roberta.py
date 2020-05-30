@@ -151,9 +151,7 @@ class RobertaTokenizer(GPT2Tokenizer):
             **kwargs,
         )
 
-    def build_inputs_with_special_tokens(
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
-    ) -> List[int]:
+    def build_inputs_with_special_tokens(self, query_ids: List[int], docs_ids: Optional[List[List[int]]], label_position: int):
         """
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks
         by concatenating and adding special tokens.
@@ -171,11 +169,21 @@ class RobertaTokenizer(GPT2Tokenizer):
         Returns:
             :obj:`List[int]`: list of `input IDs <../glossary.html#input-ids>`__ with the appropriate special tokens.
         """
-        if token_ids_1 is None:
-            return [self.cls_token_id] + token_ids_0 + [self.sep_token_id]
-        cls = [self.cls_token_id]
-        sep = [self.sep_token_id]
-        return cls + token_ids_0 + sep + sep + token_ids_1 + sep
+        input_ids = [self.cls_token_id] + query_ids
+        token_type_ids = [0] * len(input_ids) 
+        valid_mask_ids = [0] * len(input_ids)
+        position = 0
+        for i, doc_ids in enumerate(docs_ids):
+            if i == label_position:
+                position = len(input_ids)
+            input_ids.append(self.sep_token_id)
+            input_ids.extend(doc_ids)
+            valid_mask_ids.append(1)
+            valid_mask_ids.extend([0] * len(doc_ids))
+            token_type_ids.extend([1] * (1 + len(doc_ids)))
+            
+        return input_ids, token_type_ids, valid_mask_ids, position
+
 
     def get_special_tokens_mask(
         self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None, already_has_special_tokens: bool = False
