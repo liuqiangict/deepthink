@@ -629,6 +629,7 @@ class Trainer:
         if self.tb_writer:
             for k, v in logs.items():
                 self.tb_writer.add_scalar(k, v, self.global_step)
+        '''
         if is_wandb_available():
             wandb.log(logs, step=self.global_step)
         output = json.dumps({**logs, **{"step": self.global_step}})
@@ -636,6 +637,7 @@ class Trainer:
             iterator.write(output)
         else:
             print(output)
+        '''
 
     def _training_step(
         self, model: nn.Module, inputs: Dict[str, torch.Tensor], optimizer: torch.optim.Optimizer
@@ -815,10 +817,9 @@ class Trainer:
         logger.info("  Num examples = %d", self.num_examples(dataloader))
         logger.info("  Batch size = %d", batch_size)
         eval_losses: List[float] = []
-        #answers: torch.Tensor = None
         all_input_ids: torch.Tensor = None
         all_start_scores: torch.Tensor = None
-        all_end_scores: torch.Tensor = None
+        all_start_positions: torch.Tensor = None
         model.eval()
 
         if is_tpu_available():
@@ -838,12 +839,12 @@ class Trainer:
 
                     if all_input_ids is None:
                         all_input_ids = inputs["input_ids"].detach()
+                        all_start_positions = inputs["start_positions"].detach()
                         all_start_scores = start_scores.detach()
-                        all_end_scores = end_scores.detach()
                     else:
                         all_input_ids = torch.cat((all_input_ids, inputs["input_ids"].detach()), dim=0)
+                        all_start_positions = torch.cat((all_start_positions, inputs["start_positions"].detach()), dim=0)
                         all_start_scores = torch.cat((all_start_scores, start_scores.detach()), dim=0)
-                        all_end_scores = torch.cat((all_end_scores, end_scores.detach()), dim=0)
                 else:
                     logits = outputs[0]
 
@@ -852,13 +853,14 @@ class Trainer:
                 all_input_ids = self.distributed_concat(all_input_ids, num_total_examples=self.num_examples(dataloader))
             if all_start_scores is not None:
                 all_start_scores = self.distributed_concat(all_start_scores, num_total_examples=self.num_examples(dataloader))
-            if all_end_scores is not None:
-                all_end_scores = self.distributed_concat(all_end_scores, num_total_examples=self.num_examples(dataloader))
+            if all_start_positions is not None:
+                all_start_positions = self.distributed_concat(all_start_positions, num_total_examples=self.num_examples(dataloader))
 
         metrics = {}
         if len(eval_losses) > 0:
             metrics["loss"] = np.mean(eval_losses)
         if self.is_world_master():
+            '''
             answers = []
             for i in tqdm(range(all_start_scores.shape[0])):
                 all_tokens = self.tokenizer.convert_ids_to_tokens(all_input_ids[i])
@@ -878,6 +880,15 @@ class Trainer:
 
             metrics["Eval/exact_match"] = exact_match
             metrics["Eval/f1"] = f1
+            '''
+            count = 0
+            correct = 0
+            for i in tqdm(range(all_start_scores.shape[0])):
+                count += 1
+                start_preds = torch.argmax(all_start_scores[i])
+                if all_start_positions[i] == start_preds:
+                    correct += 1
+            metrics["Eval/exact_match"] = correct / count
 
         #return PredictionOutput(predictions=preds, label_ids=label_ids, metrics=metrics)
         return PredictionOutput(predictions=None, label_ids=None, metrics=metrics)
