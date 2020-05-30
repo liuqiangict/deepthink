@@ -63,16 +63,16 @@ class DTDataset(Dataset):
 
         start_idx, end_idx = self.get_correct_alignement(doc, answer)
         start_positions_context = context_encodings.char_to_token(start_idx)
-        end_positions_context = context_encodings.char_to_token(end_idx-1)
 
-        if start_positions_context is None or end_positions_context is None:
+        if start_positions_context is None:
             #print(encodings)
             start_positions, end_positions = 0, 0
         else:
             sep_idx = encodings['input_ids'].index(self.tokenizer.sep_token_id)
             start_positions = start_positions_context + sep_idx + 1
-            end_positions = end_positions_context + sep_idx + 1
-            if start_positions >= self.max_seq_len or end_positions >= self.max_seq_len:
+            #end_positions = end_positions_context + sep_idx + 1
+            end_positions = start_positions
+            if start_positions >= self.max_seq_len:
                 start_positions, end_positions = 0, 0
 
         #encodings.update({'start_positions': start_positions, 'end_positions': end_positions, 'attention_mask': encodings['attention_mask']})
