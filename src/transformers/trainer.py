@@ -566,18 +566,13 @@ class Trainer:
                     self.global_step += 1
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
 
-                    if self.is_world_master():
-                        logs: Dict[str, float] = {}
-                        logs["loss"] = (tr_loss - logging_loss) 
-                        logs["learning_rate"] = (scheduler.get_last_lr()[0] if version.parse(torch.__version__) >= version.parse("1.4") else scheduler.get_lr()[0])
-                        logging_loss = tr_loss
-                        self._log(logs)
-
-                    if (self.args.logging_steps > 0 and self.global_step % self.args.logging_steps == 0) or (
-                        self.global_step == 1 and self.args.logging_first_step
-                    ):
-                        if self.args.evaluate_during_training:
-                            self.evaluate()
+                    if (self.args.logging_steps > 0 and self.global_step % self.args.logging_steps == 0) or (self.global_step == 1 and self.args.logging_first_step):
+                        if self.is_world_master():
+                            logs: Dict[str, float] = {}
+                            logs["loss"] = (tr_loss - logging_loss) / self.args.logging_steps
+                            logs["learning_rate"] = (scheduler.get_last_lr()[0] if version.parse(torch.__version__) >= version.parse("1.4") else scheduler.get_lr()[0])
+                            logging_loss = tr_loss
+                            self._log(logs)
 
                     if self.args.save_steps > 0 and self.global_step % self.args.save_steps == 0 and self.is_world_master():
                         # In all cases (even distributed/parallel), self.model is always a reference
@@ -590,6 +585,9 @@ class Trainer:
                         output_dir = os.path.join(self.args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{self.global_step}")
 
                         self.save_model(output_dir)
+
+                        if self.args.evaluate_during_training:
+                            self.evaluate()
 
                         if self.is_world_master():
                             self._rotate_checkpoints()

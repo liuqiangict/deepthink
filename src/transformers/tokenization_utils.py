@@ -1576,7 +1576,7 @@ class PreTrainedTokenizer(SpecialTokensMixin):
                 "or add a new pad token via the function add_special_tokens if you want to use a padding strategy"
             )
 
-        query_ids = get_input_ids(text)
+        query_ids = get_input_ids(query)
         doc_ids = []
         for doc in docs:
             doc_ids.append(get_input_ids(doc))
@@ -1904,13 +1904,13 @@ class PreTrainedTokenizer(SpecialTokensMixin):
         encoded_inputs = {}
 
         # Truncation: Handle max sequence length
-        total_len = len(query_ids) + 2
+        total_len = len(query_ids) + 3
         for doc_ids in docs_ids:
             total_len += (len(doc_ids) + 1)
         if max_length and total_len > max_length:
             docs_ids, label_position = self.truncate_sequences(
                 query_ids,
-                doc_ids,
+                docs_ids,
                 label_position,
                 max_length,
                 truncation_strategy=truncation_strategy,
@@ -2028,7 +2028,7 @@ class PreTrainedTokenizer(SpecialTokensMixin):
         self,
         query_ids: List[int],
         docs_ids: List[List[int]],
-        label_psotiion: int,
+        label_position: int,
         max_length: int = 0,
         truncation_strategy: str = "longest_first",
         stride: int = 0,
@@ -2056,14 +2056,14 @@ class PreTrainedTokenizer(SpecialTokensMixin):
 
         if truncation_strategy == "longest_first":
             index = 0
-            size = 2 + len(query_ids)
-            while size < max_length and index < len(doc_ids):
-                size += (len(doc_ids) + 1)
+            size = 3 + len(query_ids)
+            while size + (len(docs_ids[index]) + 1) <= max_length and index < len(docs_ids):
+                size += (len(docs_ids[index]) + 1)
                 index += 1
             docs_ids = docs_ids[:index]
             if label_position >= index:
                 label_position = -1
-            return doc_ids, label_position
+            return docs_ids, label_position
         elif truncation_strategy == "only_first":
             assert len(ids) > num_tokens_to_remove
             window_len = min(len(ids), stride + num_tokens_to_remove)

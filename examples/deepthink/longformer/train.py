@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import torch
 
-from transformers import LongformerForQuestionAnswering, LongformerTokenizerFast, EvalPrediction
+from transformers import LongformerForQuestionAnswering, LongformerTokenizer, EvalPrediction
 from transformers import (
     HfArgumentParser,
     DataCollator,
@@ -32,14 +32,16 @@ class DummyDataCollator(DataCollator):
         """
         input_ids = torch.stack([example['input_ids'] for example in batch])
         attention_mask = torch.stack([example['attention_mask'] for example in batch])
+        token_type_ids = torch.stack([example['token_type_ids'] for example in batch])
+        valid_mask_ids = torch.stack([example['valid_mask_ids'] for example in batch])
         start_positions = torch.stack([example['start_positions'] for example in batch])
-        end_positions = torch.stack([example['end_positions'] for example in batch])
 
         return {
             'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'token_type_ids': token_type_ids,
+            'valid_mask_ids': valid_mask_ids,
             'start_positions': start_positions,
-            'end_positions': end_positions,
-            'attention_mask': attention_mask
         }
 
 
@@ -120,7 +122,7 @@ def main():
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
 
-    tokenizer = LongformerTokenizerFast.from_pretrained(
+    tokenizer = LongformerTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
     )

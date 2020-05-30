@@ -49,10 +49,10 @@ def _get_question_end_index(input_ids, sep_token_id):
 
     assert sep_token_indices.shape[1] == 2, "`input_ids` should have two dimensions"
     assert (
-        sep_token_indices.shape[0] == 3 * batch_size
+        sep_token_indices.shape[0] == 2 * batch_size
     ), f"There should be exactly three separator tokens: {sep_token_id} in every sample for questions answering. You might also consider to set `global_attention_mask` manually in the forward function to avoid this error."
 
-    return sep_token_indices.view(batch_size, 3, 2)[:, 0, 1]
+    return sep_token_indices.view(batch_size, 2, 2)[:, 0, 1]
 
 
 def _compute_global_attention_mask(input_ids, sep_token_id, before_sep_token=True):
@@ -901,7 +901,8 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
         self.num_labels = config.num_labels
 
         self.longformer = LongformerModel(config)
-        self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
+        #self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
+        self.qa_outputs = nn.Linear(config.hidden_size, 1)
 
         self.init_weights()
 
@@ -912,10 +913,10 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
         attention_mask=None,
         global_attention_mask=None,
         token_type_ids=None,
+        valid_mask_ids=None,
         position_ids=None,
         inputs_embeds=None,
         start_positions=None,
-        end_positions=None,
     ):
         r"""
         start_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`, defaults to :obj:`None`):
@@ -970,7 +971,7 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
 
         # set global attention on question tokens
         if global_attention_mask is None:
-            logger.info("Initializing global attention on question tokens...")
+            #logger.info("Initializing global attention on question tokens...")
             # put global attention on all tokens until `config.sep_token_id` is reached
             global_attention_mask = _compute_global_attention_mask(input_ids, self.config.sep_token_id)
 
@@ -986,27 +987,19 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
         sequence_output = outputs[0]
 
         logits = self.qa_outputs(sequence_output)
-        start_logits, end_logits = logits.split(1, dim=-1)
-        start_logits = start_logits.squeeze(-1)
-        end_logits = end_logits.squeeze(-1)
+        start_logits = logits.squeeze(-1)
+        start_logits = start_logits * valid_mask_ids
 
-        outputs = (start_logits, end_logits,) + outputs[2:]
-        if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
+        outputs = (start_logits, ) + outputs[2:]
+        if start_positions is not None:
             if len(start_positions.size()) > 1:
                 start_positions = start_positions.squeeze(-1)
-            if len(end_positions.size()) > 1:
-                end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
-            end_positions.clamp_(0, ignored_index)
 
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
             start_loss = loss_fct(start_logits, start_positions)
-            end_loss = loss_fct(end_logits, end_positions)
-            total_loss = (start_loss + end_loss) / 2
-            outputs = (total_loss,) + outputs
+            outputs = (start_loss,) + outputs
 
         return outputs  # (loss), start_logits, end_logits, (hidden_states), (attentions)
 

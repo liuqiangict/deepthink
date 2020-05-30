@@ -58,40 +58,20 @@ class DTDataset(Dataset):
 
     def convert_to_features(self, query, doc, answer):
         input_pairs = [query, doc]
-        encodings = self.tokenizer.encode_plus(input_pairs, pad_to_max_length=True, max_length=self.max_seq_len)
-        context_encodings = self.tokenizer.encode_plus(doc)
+        encodings = self.tokenizer.encode_plus(input_pairs, pad_to_max_length=True, max_length=self.max_seq_len, return_token_type_ids=True, return_attention_mask=True)
 
-        start_idx, end_idx = self.get_correct_alignement(doc, answer)
-        start_positions_context = context_encodings.char_to_token(start_idx)
-
-        if start_positions_context is None:
-            #print(encodings)
-            start_positions, end_positions = 0, 0
-        else:
-            sep_idx = encodings['input_ids'].index(self.tokenizer.sep_token_id)
-            start_positions = start_positions_context + sep_idx + 1
-            #end_positions = end_positions_context + sep_idx + 1
-            end_positions = start_positions
-            if start_positions >= self.max_seq_len:
-                start_positions, end_positions = 0, 0
-
-        #encodings.update({'start_positions': start_positions, 'end_positions': end_positions, 'attention_mask': encodings['attention_mask']})
-   
-        return encodings['input_ids'], encodings['attention_mask'], start_positions, end_positions
+        return encodings['input_ids'], encodings['attention_mask'], encodings['token_type_ids'], encodings['valid_mask_ids'],  encodings['label']
 
     def __getitem__(self, index):
+        guid, query, docs, label = self.data.all_pairs[index]
+        encodings = self.tokenizer.encode_plus(query, docs, label, pad_to_max_length=True, max_length=self.max_seq_len, return_token_type_ids=True, return_attention_mask=True)
 
-        guid, query, doc, answer = self.data.all_pairs[index]
-        input_ids, attention_mask, start_positions, end_positions = self.convert_to_features(query, doc, answer)
-
-        #guid = map_to_torch([inputs['guid']])
-        input_ids = map_to_torch(input_ids)
-        attention_mask = map_to_torch(attention_mask)
-        #token_type_ids = map_to_torch(inputs['token_type_ids'])
-        start_positions = map_to_torch([start_positions])[0]
-        end_positions = map_to_torch([end_positions])[0]
-        #return {'id': guid, 'query': query, 'doc': doc, 'answers': {'text': [answer]}, 'input_ids': input_ids, 'attention_mask': attention_mask, 'start_positions': start_positions, 'end_positions': end_positions}
-        return {'id': guid, 'query': query, 'doc': doc, 'answers': answer, 'input_ids': input_ids, 'attention_mask': attention_mask, 'start_positions': start_positions, 'end_positions': end_positions}
+        input_ids = map_to_torch(encodings['input_ids'])
+        attention_mask = map_to_torch(encodings['attention_mask'])
+        token_type_ids = map_to_torch(encodings['token_type_ids'])
+        valid_mask_ids = map_to_torch(encodings['valid_mask_ids'])
+        positions = map_to_torch([encodings['label']])[0]
+        return {'id': guid, 'query': query, 'docs': docs, 'label': label, 'input_ids': input_ids, 'attention_mask': attention_mask, 'token_type_ids': token_type_ids, 'valid_mask_ids': valid_mask_ids, 'start_positions': positions}
 
 class DeepThinkDataset:
     def __init__(self, path, readin=200000000, mode='train'):
@@ -105,19 +85,10 @@ class DeepThinkDataset:
                 query = cols[1]
                 if len(query) > 512:
                     continue
-                '''
-                doc = cols[2]
-                answer = json.loads(cols[3])
-                '''
                 docs = [doc['Text'] for doc in json.loads(cols[2])]
-                doc = ' '.join(docs)
-                start_idx = int(cols[4])
-                end_idx = int(cols[5])
-                answer_start = len(' '.join(docs[:start_idx]))
-                if start_idx != 0:
-                    answer_start += 1
-                answer = {'text': [' '.join(docs[start_idx : end_idx + 1])], 'answer_start': [answer_start]}
-                all_pairs.append([guid, query, doc, answer])
+                label = int(cols[4])
+
+                all_pairs.append([guid, query, docs, label])
                 
                 if i > readin:
                     break
