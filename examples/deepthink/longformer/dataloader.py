@@ -62,6 +62,7 @@ class DTDataset(Dataset):
 
         return encodings['input_ids'], encodings['global_attention_mask'], encodings['attention_mask'], encodings['token_type_ids'], encodings['valid_mask_ids'],  encodings['label']
 
+
     def __getitem__(self, index):
         guid, query, docs, label = self.data.all_pairs[index]
         encodings = self.tokenizer.encode_plus(query, docs, label, pad_to_max_length=True, max_length=self.max_seq_len, return_token_type_ids=True, return_attention_mask=True)
