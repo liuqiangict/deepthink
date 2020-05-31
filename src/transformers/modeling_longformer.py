@@ -970,10 +970,12 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
         """
 
         # set global attention on question tokens
+        '''
         if global_attention_mask is None:
             #logger.info("Initializing global attention on question tokens...")
             # put global attention on all tokens until `config.sep_token_id` is reached
             global_attention_mask = _compute_global_attention_mask(input_ids, self.config.sep_token_id)
+        '''
 
         outputs = self.longformer(
             input_ids,

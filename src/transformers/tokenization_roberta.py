@@ -171,24 +171,29 @@ class RobertaTokenizer(GPT2Tokenizer):
         """
         input_ids = [self.cls_token_id] + query_ids + [self.sep_token_id]
         token_type_ids = [0] * len(input_ids) 
+        attention_mask = [2] * len(input_ids)
         valid_mask_ids = [0] * len(input_ids)
         position = 0
-        for i, doc_ids in enumerate(docs_ids):
-            if i == label_position:
+        index = 0
+        for doc_ids in docs_ids:
+            if index == label_position:
                 position = len(input_ids)
+            index += 1
             input_ids.append(self.cls_token_id)
             input_ids.extend(doc_ids)
             valid_mask_ids.append(1)
             valid_mask_ids.extend([0] * len(doc_ids))
-            token_type_ids.extend([i + 1] * (1 + len(doc_ids)))
+            attention_mask.extend([1] *  (1 + len(doc_ids)))
+            token_type_ids.extend([index] * (1 + len(doc_ids)))
 
         assert position >= 0, "In any case, position should be a positive numebr. if 0, means ground truth answer out of sequence length."
 
         input_ids.append(self.sep_token_id)
         valid_mask_ids.append(0)
-        token_type_ids.append(1)
+        attention_mask.append(1)
+        token_type_ids.append(index)
             
-        return input_ids, token_type_ids, valid_mask_ids, position
+        return input_ids, token_type_ids, attention_mask, valid_mask_ids, position
 
 
     def get_special_tokens_mask(
