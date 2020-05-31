@@ -60,18 +60,19 @@ class DTDataset(Dataset):
         input_pairs = [query, doc]
         encodings = self.tokenizer.encode_plus(input_pairs, pad_to_max_length=True, max_length=self.max_seq_len, return_token_type_ids=True, return_attention_mask=True)
 
-        return encodings['input_ids'], encodings['attention_mask'], encodings['token_type_ids'], encodings['valid_mask_ids'],  encodings['label']
+        return encodings['input_ids'], encodings['global_attention_mask'], encodings['attention_mask'], encodings['token_type_ids'], encodings['valid_mask_ids'],  encodings['label']
 
     def __getitem__(self, index):
         guid, query, docs, label = self.data.all_pairs[index]
         encodings = self.tokenizer.encode_plus(query, docs, label, pad_to_max_length=True, max_length=self.max_seq_len, return_token_type_ids=True, return_attention_mask=True)
 
         input_ids = map_to_torch(encodings['input_ids'])
+        global_attention_mask = map_to_torch(encodings['global_attention_mask'])
         attention_mask = map_to_torch(encodings['attention_mask'])
         token_type_ids = map_to_torch(encodings['token_type_ids'])
         valid_mask_ids = map_to_torch(encodings['valid_mask_ids'])
         positions = map_to_torch([encodings['label']])[0]
-        return {'id': guid, 'query': query, 'docs': docs, 'label': label, 'input_ids': input_ids, 'attention_mask': attention_mask, 'token_type_ids': token_type_ids, 'valid_mask_ids': valid_mask_ids, 'start_positions': positions}
+        return {'id': guid, 'query': query, 'docs': docs, 'label': label, 'input_ids': input_ids, 'global_attention_mask': global_attention_mask, 'attention_mask': attention_mask, 'token_type_ids': token_type_ids, 'valid_mask_ids': valid_mask_ids, 'start_positions': positions}
 
 class DeepThinkDataset:
     def __init__(self, path, readin=200000000, mode='train'):

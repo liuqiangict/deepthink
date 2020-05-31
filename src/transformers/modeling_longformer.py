@@ -67,12 +67,14 @@ def _compute_global_attention_mask(input_ids, sep_token_id, before_sep_token=Tru
     # bool attention mask with True in locations of global attention
     attention_mask = torch.arange(input_ids.shape[1], device=input_ids.device)
     if before_sep_token is True:
-        attention_mask = (attention_mask.expand_as(input_ids) < question_end_index).to(torch.int64)
+        attention_mask = (attention_mask.expand_as(input_ids) < question_end_index).to(torch.uint8)
     else:
         # last token is separation token and should not be counted and in the middle are two separation tokens
         attention_mask = (attention_mask.expand_as(input_ids) > (question_end_index + 1)).to(torch.uint8) * (
             attention_mask.expand_as(input_ids) < input_ids.shape[-1]
-        ).to(torch.int64)
+        ).to(torch.uint8)
+    print('*' * 150)
+    print(attention_mask)
 
     return attention_mask
 
@@ -969,13 +971,21 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
 
         """
 
+        print("input_ids", input_ids)
+        print("attention_mask", attention_mask)
+        print("global_attention_mask", global_attention_mask)
         # set global attention on question tokens
-        '''
+        global_attention_mask = None
         if global_attention_mask is None:
             #logger.info("Initializing global attention on question tokens...")
             # put global attention on all tokens until `config.sep_token_id` is reached
             global_attention_mask = _compute_global_attention_mask(input_ids, self.config.sep_token_id)
-        '''
+        print("attention_mask", attention_mask)
+        print("global_attention_mask", global_attention_mask)
+        print("token_type_ids", token_type_ids)
+        print("valid_mask_ids", valid_mask_ids)
+        print("position_ids", start_positions)
+        exit()
 
         outputs = self.longformer(
             input_ids,

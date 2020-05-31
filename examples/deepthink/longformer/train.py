@@ -31,6 +31,7 @@ class DummyDataCollator(DataCollator):
             A dictionary of tensors
         """
         input_ids = torch.stack([example['input_ids'] for example in batch])
+        global_attention_mask = torch.stack([example['global_attention_mask'] for example in batch])
         attention_mask = torch.stack([example['attention_mask'] for example in batch])
         token_type_ids = torch.stack([example['token_type_ids'] for example in batch])
         valid_mask_ids = torch.stack([example['valid_mask_ids'] for example in batch])
@@ -38,6 +39,7 @@ class DummyDataCollator(DataCollator):
 
         return {
             'input_ids': input_ids,
+            'global_attention_mask': global_attention_mask,
             'attention_mask': attention_mask,
             'token_type_ids': token_type_ids,
             'valid_mask_ids': valid_mask_ids,
