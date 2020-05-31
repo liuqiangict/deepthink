@@ -187,11 +187,12 @@ class ReformerEmbeddings(nn.Module):
         self.dropout = config.hidden_dropout_prob
 
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.position_embeddings = (
             AxialPositionEmbeddings(config) if config.axial_pos_embds else PositionEmbeddings(config)
         )
 
-    def forward(self, input_ids=None, position_ids=None, inputs_embeds=None):
+    def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
         if input_ids is not None:
             input_shape = input_ids.size()
             device = input_ids.device
@@ -214,7 +215,9 @@ class ReformerEmbeddings(nn.Module):
         )
 
         # dropout
-        embeddings = nn.functional.dropout(inputs_embeds, p=self.dropout, training=self.training)
+        token_type_embeddings = self.token_type_embeddings(token_type_ids)
+        embeddings = inputs_embeds + token_type_embeddings
+        embeddings = nn.functional.dropout(embeddings, p=self.dropout, training=self.training)
 
         # add positional embeddings
         position_embeddings = self.position_embeddings(position_ids)
@@ -1498,6 +1501,7 @@ class ReformerModel(ReformerPreTrainedModel):
     def forward(
         self,
         input_ids=None,
+        token_type_ids=None,
         attention_mask=None,
         position_ids=None,
         head_mask=None,
@@ -1588,7 +1592,7 @@ class ReformerModel(ReformerPreTrainedModel):
                 device=device,
             )
 
-        embedding_output = self.embeddings(input_ids=input_ids, position_ids=position_ids, inputs_embeds=inputs_embeds)
+        embedding_output = self.embeddings(input_ids=input_ids, token_type_ids=token_type_ids, position_ids=position_ids, inputs_embeds=inputs_embeds)
 
         encoder_outputs = self.encoder(
             hidden_states=embedding_output,
@@ -1771,3 +1775,60 @@ class ReformerModelWithLMHead(ReformerPreTrainedModel):
             inputs_dict["num_hashes"] = kwargs["num_hashes"]
 
         return inputs_dict
+
+
+@add_start_docstrings(
+    """REformer Model with a span classification head on top for extractive question-answering tasks like SQuAD / TriviaQA (a linear layers on top of
+    the hidden-states output to compute `span start logits` and `span end logits`). """,
+    REFORMER_START_DOCSTRING,
+)
+class ReformerForQuestionAnswering(ReformerPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+
+        self.reformer = ReformerModel(config)
+        self.qa_outputs = nn.Linear(2 * config.hidden_size, 1)
+
+        self.init_weights()
+
+    @add_start_docstrings_to_callable(REFORMER_INPUTS_DOCSTRING.format("(batch_size, sequence_length)"))
+    def forward(
+        self,
+        input_ids,
+        attention_mask=None,
+        token_type_ids=None,
+        valid_mask_ids=None,
+        position_ids=None,
+        inputs_embeds=None,
+        start_positions=None,
+    ):
+
+        outputs = self.reformer(
+            input_ids,
+            token_type_ids=token_type_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+        )
+
+        sequence_output = outputs[0]
+
+        logits = self.qa_outputs(sequence_output)
+        start_logits = logits.squeeze(-1)
+        #start_logits = start_logits * valid_mask_ids.to(start_logits.dtype)
+
+        outputs = (start_logits, ) + outputs[2:]
+        if start_positions is not None:
+            if len(start_positions.size()) > 1:
+                start_positions = start_positions.squeeze(-1)
+            ignored_index = start_logits.size(1)
+            start_positions.clamp_(0, ignored_index)
+
+            loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
+            start_loss = loss_fct(start_logits, start_positions)
+            outputs = (start_loss,) + outputs
+
+        return outputs  # (loss), start_logits, end_logits, (hidden_states), (attentions)
+
+

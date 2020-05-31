@@ -473,7 +473,7 @@ class Trainer:
                 model,
                 device_ids=[self.args.local_rank],
                 output_device=self.args.local_rank,
-                find_unused_parameters=True,
+                find_unused_parameters=False,
             )
 
         if self.tb_writer is not None:

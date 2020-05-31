@@ -319,6 +319,7 @@ if is_torch_available():
         ReformerLayer,
         ReformerModel,
         ReformerModelWithLMHead,
+        ReformerForQuestionAnswering,
         REFORMER_PRETRAINED_MODEL_ARCHIVE_MAP,
     )
 
