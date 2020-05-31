@@ -649,9 +649,6 @@ class LongformerModel(RobertaModel):
                 # simply use `global_attention_mask` as `attention_mask`
                 # if no `attention_mask` is given
                 attention_mask = global_attention_mask + 1
-        print('attention_mask', attention_mask)
-        print('global_attention_mask', global_attention_mask)
-        exit()
 
         padding_len, input_ids, attention_mask, token_type_ids, position_ids, inputs_embeds = self._pad_to_window_size(
             input_ids=input_ids,
@@ -981,13 +978,6 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
             #logger.info("Initializing global attention on question tokens...")
             # put global attention on all tokens until `config.sep_token_id` is reached
             global_attention_mask = _compute_global_attention_mask(input_ids, self.config.sep_token_id)
-        print("input_ids", input_ids)
-        print("attention_mask", attention_mask)
-        print("global_attention_mask", global_attention_mask)
-        print("token_type_ids", token_type_ids)
-        print("valid_mask_ids", valid_mask_ids)
-        print("position_ids", start_positions)
-        exit()
         '''
 
         outputs = self.longformer(
