@@ -549,7 +549,7 @@ class LSHSelfAttention(nn.Module, EfficientAttentionMixin):
         if num_buckets > num_buckets_limit:
             num_buckets = [2 ** (num_buckets_pow_2 // 2), 2 ** (num_buckets_pow_2 - num_buckets_pow_2 // 2)]
 
-        logger.warning("config.num_buckets is not set. Setting config.num_buckets to {}...".format(num_buckets))
+        #logger.warning("config.num_buckets is not set. Setting config.num_buckets to {}...".format(num_buckets))
 
         # set num buckets in config to be properly saved
         self.config.num_buckets = num_buckets
@@ -1356,8 +1356,10 @@ class ReformerOnlyLMHead(nn.Module):
         # Layer Norm is done over 2 * hidden_size
         self.seq_len_dim = 1
         self.chunk_size_lm_head = config.chunk_size_lm_head
-        self.decoder = nn.Linear(2 * config.hidden_size, config.vocab_size, bias=False)
-        self.bias = nn.Parameter(torch.zeros(config.vocab_size))
+        #self.decoder = nn.Linear(2 * config.hidden_size, config.vocab_size, bias=False)
+        self.decoder = nn.Linear(2 * config.hidden_size, 1, bias=False)
+        #self.bias = nn.Parameter(torch.zeros(config.vocab_size))
+        self.bias = nn.Parameter(torch.zeros(1))
 
         # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
         self.decoder.bias = self.bias
@@ -1788,7 +1790,8 @@ class ReformerForQuestionAnswering(ReformerPreTrainedModel):
         self.num_labels = config.num_labels
 
         self.reformer = ReformerModel(config)
-        self.qa_outputs = nn.Linear(2 * config.hidden_size, 1)
+        #self.qa_outputs = nn.Linear(2 * config.hidden_size, 1)
+        self.lm_qa_outputs = ReformerOnlyLMHead(config)
 
         self.init_weights()
 
@@ -1814,7 +1817,7 @@ class ReformerForQuestionAnswering(ReformerPreTrainedModel):
 
         sequence_output = outputs[0]
 
-        logits = self.qa_outputs(sequence_output)
+        logits = self.lm_qa_outputs(sequence_output)
         start_logits = logits.squeeze(-1)
         #start_logits = start_logits * valid_mask_ids.to(start_logits.dtype)
 
