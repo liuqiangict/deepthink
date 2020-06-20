@@ -100,7 +100,9 @@ class TrainingArguments:
     logging_dir: Optional[str] = field(default=None, metadata={"help": "Tensorboard log dir."})
     logging_first_step: bool = field(default=False, metadata={"help": "Log and eval the first global_step"})
     logging_steps: int = field(default=500, metadata={"help": "Log every X updates steps."})
-    save_steps: int = field(default=500, metadata={"help": "Save checkpoint every X updates steps."})
+    eval_steps: int = field(default=2000, metadata={"help": "Eval checkpoint every X updates steps."})
+    save_steps: int = field(default=20000, metadata={"help": "Save checkpoint every X updates steps."})
+
     save_total_limit: Optional[int] = field(
         default=None,
         metadata={

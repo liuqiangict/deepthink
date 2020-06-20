@@ -73,8 +73,6 @@ def _compute_global_attention_mask(input_ids, sep_token_id, before_sep_token=Tru
         attention_mask = (attention_mask.expand_as(input_ids) > (question_end_index + 1)).to(torch.uint8) * (
             attention_mask.expand_as(input_ids) < input_ids.shape[-1]
         ).to(torch.uint8)
-    print('*' * 150)
-    print(attention_mask)
 
     return attention_mask
 
@@ -329,7 +327,7 @@ class LongformerSelfAttention(nn.Module):
             selected_k[selection_padding_mask_nonzeros] = k[extra_attention_mask_nonzeros]
             # (batch_size, seqlen, num_heads, max_num_extra_indices_per_batch)
             selected_attn_weights = torch.einsum("blhd,bshd->blhs", (q, selected_k))
-            selected_attn_weights[selection_padding_mask_zeros[0], :, :, selection_padding_mask_zeros[1]] = -10000
+            selected_attn_weights[selection_padding_mask_zeros[0], :, :, selection_padding_mask_zeros[1]] = -10000.0
             # concat to attn_weights
             # (batch_size, seqlen, num_heads, extra attention count + 2*window+1)
             attn_weights = torch.cat((selected_attn_weights, attn_weights), dim=-1)
@@ -984,7 +982,7 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
             input_ids,
             attention_mask=attention_mask,
             global_attention_mask=global_attention_mask,
-            token_type_ids=token_type_ids,
+            #token_type_ids=token_type_ids,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
         )
@@ -993,7 +991,7 @@ class LongformerForQuestionAnswering(BertPreTrainedModel):
 
         logits = self.qa_outputs(sequence_output)
         start_logits = logits.squeeze(-1)
-        start_logits = start_logits * valid_mask_ids.to(start_logits.dtype)
+        #start_logits = start_logits * valid_mask_ids.to(start_logits.dtype)
 
         outputs = (start_logits, ) + outputs[2:]
         if start_positions is not None:

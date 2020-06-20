@@ -63,6 +63,7 @@ def is_tensorboard_available():
     return _has_tensorboard
 
 
+'''
 try:
     import wandb
 
@@ -73,7 +74,8 @@ try:
     else:
         _has_wandb = False if os.getenv("WANDB_DISABLED") else True
 except ImportError:
-    _has_wandb = False
+'''
+_has_wandb = False
 
 
 def is_wandb_available():
@@ -131,9 +133,6 @@ def exact_match_score(prediction, ground_truth):
     #return (normalize_answer(prediction) == normalize_answer(ground_truth))
     norm_pred = normalize_answer(prediction)
     norm_ground = normalize_answer(ground_truth)[:len(norm_pred)]
-    #print('*' * 150)
-    #print(norm_ground)
-    #print(norm_pred)
     return norm_pred == norm_ground
 
 
@@ -473,7 +472,7 @@ class Trainer:
                 model,
                 device_ids=[self.args.local_rank],
                 output_device=self.args.local_rank,
-                find_unused_parameters=False,
+                find_unused_parameters=True,
             )
 
         if self.tb_writer is not None:
@@ -574,6 +573,9 @@ class Trainer:
                             logging_loss = tr_loss
                             self._log(logs)
 
+                    if self.args.evaluate_during_training and self.args.eval_steps > 0 and self.global_step % self.args.eval_steps == 0:
+                        self.evaluate()
+
                     if self.args.save_steps > 0 and self.global_step % self.args.save_steps == 0:
                         # In all cases (even distributed/parallel), self.model is always a reference
                         # to the model we want to save.
@@ -589,9 +591,6 @@ class Trainer:
                             self._rotate_checkpoints()
                             torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
                             torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-
-                        if self.args.evaluate_during_training:
-                            self.evaluate()
 
                 if self.args.max_steps > 0 and self.global_step > self.args.max_steps:
                     epoch_iterator.close()
